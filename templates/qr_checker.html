@@ -1,0 +1,204 @@
+{% extends "base.html" %}
+{% block title %}QR Checker — PhishGuard{% endblock %}
+
+{% block pg_hero %}
+<div class="pg-hero">
+<div class="pg-hero-inner">
+    <div class="pg-eyebrow">📱 QR Scanner</div>
+    <h1>QR Code Phishing Detection</h1>
+    <p>Upload a QR code image — PhishGuard decodes it and runs full URL phishing analysis on the extracted link in seconds.</p>
+</div>
+</div>
+{% endblock %}
+
+{% block content %}
+<div class="checker-layout">
+    <div>
+        <div class="panel">
+            <div class="panel-header">
+                <div class="panel-header-icon">📱</div>
+                <div><h2>Upload QR Code</h2></div>
+            </div>
+            <div class="panel-body">
+                <!-- Drag-and-drop zone -->
+                <div class="file-drop" id="dropZone" onclick="document.getElementById('qrInput').click()">
+                    <input type="file" id="qrInput" accept="image/*" onchange="handleFile(this.files[0])">
+                    <div class="file-drop-icon" id="dropIcon">📤</div>
+                    <p id="dropText">Click to upload or drag & drop a QR code image</p>
+                    <p class="file-name" id="fileName"></p>
+                </div>
+
+                <!-- Preview thumbnail -->
+                <div id="previewWrap" style="display:none; margin-top:16px; text-align:center;">
+                    <img id="previewThumb" style="max-height:160px; border-radius:10px; border:1.5px solid var(--gray-200); box-shadow:var(--shadow-sm);">
+                </div>
+
+                <button class="btn-analyze" id="checkBtn" onclick="checkQR()" style="margin-top:18px;" disabled>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+                    Scan QR Code
+                </button>
+                <div class="loader" id="loading">
+                    <div class="loader-bar"></div>
+                    <span>Decoding QR code…</span>
+                </div>
+                <div class="result-panel" id="result">
+                    <div class="result-banner"><h3 id="resultTitle"></h3></div>
+                    <div class="result-rows" id="resultContent"></div>
+                    <div class="conf-bar-wrap" id="confBar" style="display:none">
+                        <div class="conf-bar-label">
+                            <span>Phishing Probability</span>
+                            <span id="confPct">0%</span>
+                        </div>
+                        <div class="conf-bar-track">
+                            <div class="conf-bar-fill" id="confFill"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="tips-panel">
+        <div class="panel">
+            <div class="panel-header">
+                <div class="panel-header-icon">💡</div>
+                <div><h2>QR Safety Tips</h2></div>
+            </div>
+            <div class="panel-body">
+                <div class="tip-item">
+                    <div class="tip-num">01</div>
+                    <div class="tip-text">Never scan QR codes from unknown or untrusted sources</div>
+                </div>
+                <div class="tip-item">
+                    <div class="tip-num">02</div>
+                    <div class="tip-text">Beware QR codes in unsolicited emails, messages, or flyers</div>
+                </div>
+                <div class="tip-item">
+                    <div class="tip-num">03</div>
+                    <div class="tip-text">In public places, check for sticker QR codes over legitimate ones</div>
+                </div>
+                <div class="tip-item">
+                    <div class="tip-num">04</div>
+                    <div class="tip-text">Always verify the URL preview before opening any scanned link</div>
+                </div>
+                <div class="tip-item">
+                    <div class="tip-num">05</div>
+                    <div class="tip-text">Avoid QR codes that promise prizes, urgent alerts, or free offers</div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+let selectedFile = null;
+
+// Drag and drop
+const zone = document.getElementById('dropZone');
+zone.addEventListener('dragover', e => { e.preventDefault(); zone.classList.add('drag-over'); });
+zone.addEventListener('dragleave', () => zone.classList.remove('drag-over'));
+zone.addEventListener('drop', e => {
+    e.preventDefault(); zone.classList.remove('drag-over');
+    if (e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]);
+});
+
+function handleFile(file) {
+    if (!file) return;
+    selectedFile = file;
+    document.getElementById('fileName').textContent = file.name;
+    document.getElementById('dropIcon').textContent = '✅';
+    document.getElementById('dropText').textContent = 'File selected — ready to scan';
+    document.getElementById('checkBtn').disabled = false;
+
+    // Show image preview
+    const reader = new FileReader();
+    reader.onload = e => {
+        const thumb = document.getElementById('previewThumb');
+        thumb.src = e.target.result;
+        document.getElementById('previewWrap').style.display = 'block';
+    };
+    reader.readAsDataURL(file);
+}
+
+async function checkQR() {
+    if (!selectedFile) return;
+    const btn = document.getElementById('checkBtn');
+    const loader = document.getElementById('loading');
+    const result = document.getElementById('result');
+    result.style.display = 'none';
+    loader.classList.add('active');
+    btn.disabled = true;
+
+    const formData = new FormData();
+    formData.append('qr_image', selectedFile);
+
+    try {
+        const r = await fetch('/api/check-qr', { method: 'POST', body: formData });
+        const d = await r.json();
+        loader.classList.remove('active');
+        if (d.success) showResult(d.result);
+        else showError(d.error || d.message || 'Unknown error');
+    } catch(e) {
+        loader.classList.remove('active');
+        showError('An error occurred. Please try again.');
+    } finally { btn.disabled = false; }
+}
+
+function showResult(d) {
+    const panel = document.getElementById('result');
+    const confFill = document.getElementById('confFill');
+    const confLabel = document.querySelector('.conf-bar-label span:first-child');
+    panel.className = 'result-panel';
+    
+    // Dynamic label and bar behavior
+    let displayProb = d.phishing_probability;
+    if (d.prediction === 'Legitimate') {
+        panel.classList.add('safe');
+        document.getElementById('resultTitle').textContent = '✅ Safe QR Code';
+        confFill.className = 'conf-bar-fill safe-fill';
+        confLabel.textContent = 'Safety Score';
+        displayProb = d.legitimate_probability;
+    } else if (d.risk_level === 'High Risk') {
+        panel.classList.add('danger');
+        document.getElementById('resultTitle').textContent = '🚨 Phishing QR Code!';
+        confFill.className = 'conf-bar-fill';
+        confLabel.textContent = 'Phishing Probability';
+    } else {
+        panel.classList.add('warning');
+        document.getElementById('resultTitle').textContent = '⚠️ Suspicious QR Code';
+        confFill.className = 'conf-bar-fill warning-fill';
+        confLabel.textContent = 'Phishing Probability';
+    }
+
+    let rows = '';
+    if (d.qr_content) rows += `<div class="result-row"><span class="rr-key">QR Content</span><span class="rr-val">${d.qr_content}</span></div>`;
+    
+    // Only show URL if it's different from QR Content
+    if (d.url && d.url !== d.qr_content) {
+        rows += `<div class="result-row"><span class="rr-key">URL</span><span class="rr-val">${d.url}</span></div>`;
+    }
+    
+    rows += `
+        <div class="result-row"><span class="rr-key">Prediction</span><span class="rr-val">${d.prediction}</span></div>
+        <div class="result-row"><span class="rr-key">Risk Level</span><span class="rr-val">${d.risk_level}</span></div>
+        <div class="result-row"><span class="rr-key">Global Confidence</span><span class="rr-val">${d.confidence.toFixed(1)}%</span></div>
+    `;
+    document.getElementById('resultContent').innerHTML = rows;
+    document.getElementById('confBar').style.display = 'block';
+    document.getElementById('confPct').textContent = displayProb.toFixed(1) + '%';
+    panel.style.display = 'block';
+    setTimeout(() => { confFill.style.width = displayProb + '%'; }, 80);
+}
+
+function showError(msg) {
+    const panel = document.getElementById('result');
+    panel.className = 'result-panel danger';
+    document.getElementById('resultTitle').textContent = '❌ Error';
+    document.getElementById('resultContent').innerHTML = `<div class="result-row"><span class="rr-val">${msg}</span></div>`;
+    document.getElementById('confBar').style.display = 'none';
+    panel.style.display = 'block';
+}
+</script>
+{% endblock %}

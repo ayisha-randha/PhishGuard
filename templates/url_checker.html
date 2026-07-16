@@ -1,0 +1,170 @@
+{% extends "base.html" %}
+{% block title %}URL Checker — PhishGuard{% endblock %}
+
+{% block pg_hero %}
+<div class="pg-hero">
+<div class="pg-hero-inner">
+    <div class="pg-eyebrow">🔗 URL Scanner</div>
+    <h1>URL Phishing Detection</h1>
+    <p>Paste any URL below and our CatBoost AI will instantly analyze it for phishing patterns, suspicious domains, and malicious signals.</p>
+</div>
+</div>
+{% endblock %}
+
+{% block content %}
+<div class="checker-layout">
+
+    <!-- FORM PANEL -->
+    <div>
+        <div class="panel">
+            <div class="panel-header">
+                <div class="panel-header-icon">🔗</div>
+                <div>
+                    <h2>Check a URL</h2>
+                </div>
+            </div>
+            <div class="panel-body">
+                <div class="field">
+                    <label for="url">Website URL</label>
+                    <input type="text" id="url" placeholder="https://example.com" autocomplete="off">
+                </div>
+                <button class="btn-analyze" id="checkBtn" onclick="checkURL()">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+                    Analyze URL
+                </button>
+
+                <div class="loader" id="loading">
+                    <div class="loader-bar"></div>
+                    <span>Scanning…</span>
+                </div>
+
+                <div class="result-panel" id="result">
+                    <div class="result-banner">
+                        <h3 id="resultTitle"></h3>
+                    </div>
+                    <div class="result-rows" id="resultContent"></div>
+                    <div class="conf-bar-wrap" id="confBar" style="display:none">
+                        <div class="conf-bar-label">
+                            <span>Phishing Probability</span>
+                            <span id="confPct">0%</span>
+                        </div>
+                        <div class="conf-bar-track">
+                            <div class="conf-bar-fill" id="confFill"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- TIPS PANEL -->
+    <div class="tips-panel">
+        <div class="panel">
+            <div class="panel-header">
+                <div class="panel-header-icon">💡</div>
+                <div><h2>Spotting Phishing URLs</h2></div>
+            </div>
+            <div class="panel-body">
+                <div class="tip-item">
+                    <div class="tip-num">01</div>
+                    <div class="tip-text">Check for misspelled domain names — <em>g00gle.com</em> vs <em>google.com</em></div>
+                </div>
+                <div class="tip-item">
+                    <div class="tip-num">02</div>
+                    <div class="tip-text">Beware suspicious subdomains like <em>paypal-secure.evil.com</em></div>
+                </div>
+                <div class="tip-item">
+                    <div class="tip-num">03</div>
+                    <div class="tip-text">Always verify HTTPS and a valid SSL certificate before sharing data</div>
+                </div>
+                <div class="tip-item">
+                    <div class="tip-num">04</div>
+                    <div class="tip-text">URLs with excessive special characters or hyphens are often suspicious</div>
+                </div>
+                <div class="tip-item">
+                    <div class="tip-num">05</div>
+                    <div class="tip-text">Never click shortened links (bit.ly, tinyurl) from unknown senders</div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.getElementById('url').addEventListener('keydown', e => { if(e.key==='Enter') checkURL(); });
+
+async function checkURL() {
+    const url = document.getElementById('url').value.trim();
+    if (!url) return;
+    const btn = document.getElementById('checkBtn');
+    const loader = document.getElementById('loading');
+    const result = document.getElementById('result');
+    result.style.display = 'none';
+    loader.classList.add('active');
+    btn.disabled = true;
+    try {
+        const r = await fetch('/api/check-url', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({url}) });
+        const d = await r.json();
+        loader.classList.remove('active');
+        if (d.success) showResult(d.result);
+        else showError(d.error);
+    } catch(e) {
+        loader.classList.remove('active');
+        showError('An error occurred. Please try again.');
+    } finally { btn.disabled = false; }
+}
+
+function showResult(d) {
+    const panel = document.getElementById('result');
+    const title = document.getElementById('resultTitle');
+    const content = document.getElementById('resultContent');
+    const confBar = document.getElementById('confBar');
+    const confPct = document.getElementById('confPct');
+    const confFill = document.getElementById('confFill');
+    const confLabel = document.querySelector('.conf-bar-label span:first-child');
+
+    panel.className = 'result-panel';
+    let displayProb = d.phishing_probability;
+    if (d.prediction === 'Legitimate') {
+        panel.classList.add('safe');
+        title.textContent = '✅ Safe — Legitimate URL';
+        confFill.className = 'conf-bar-fill safe-fill';
+        confLabel.textContent = 'Safety Score';
+        displayProb = d.legitimate_probability;
+    } else if (d.risk_level === 'High Risk') {
+        panel.classList.add('danger');
+        title.textContent = '🚨 Phishing Detected!';
+        confFill.className = 'conf-bar-fill';
+        confLabel.textContent = 'Phishing Probability';
+    } else {
+        panel.classList.add('warning');
+        title.textContent = '⚠️ Suspicious URL';
+        confFill.className = 'conf-bar-fill warning-fill';
+        confLabel.textContent = 'Phishing Probability';
+    }
+
+    content.innerHTML = `
+        <div class="result-row"><span class="rr-key">URL</span><span class="rr-val">${d.url}</span></div>
+        <div class="result-row"><span class="rr-key">Prediction</span><span class="rr-val">${d.prediction}</span></div>
+        <div class="result-row"><span class="rr-key">Risk Level</span><span class="rr-val">${d.risk_level}</span></div>
+        <div class="result-row"><span class="rr-key">Global Confidence</span><span class="rr-val">${d.confidence.toFixed(1)}%</span></div>
+    `;
+
+    confBar.style.display = 'block';
+    confPct.textContent = displayProb.toFixed(1) + '%';
+    panel.style.display = 'block';
+    setTimeout(() => { confFill.style.width = displayProb + '%'; }, 80);
+}
+
+function showError(msg) {
+    const panel = document.getElementById('result');
+    panel.className = 'result-panel danger';
+    document.getElementById('resultTitle').textContent = '❌ Error';
+    document.getElementById('resultContent').innerHTML = `<div class="result-row"><span class="rr-val">${msg}</span></div>`;
+    document.getElementById('confBar').style.display = 'none';
+    panel.style.display = 'block';
+}
+</script>
+{% endblock %}

@@ -1,0 +1,154 @@
+{% extends "base.html" %}
+{% block title %}SMS Checker — PhishGuard{% endblock %}
+
+{% block pg_hero %}
+<div class="pg-hero">
+<div class="pg-hero-inner">
+    <div class="pg-eyebrow">💬 SMS Scanner</div>
+    <h1>SMS Phishing Detection</h1>
+    <p>Paste an SMS message to detect smishing attempts. Our model catches prize scams, fake bank alerts, and malicious shortened links instantly.</p>
+</div>
+</div>
+{% endblock %}
+
+{% block content %}
+<div class="checker-layout">
+    <div>
+        <div class="panel">
+            <div class="panel-header">
+                <div class="panel-header-icon">💬</div>
+                <div><h2>Analyze SMS Message</h2></div>
+            </div>
+            <div class="panel-body">
+                <div class="field">
+                    <label for="smsText">SMS Content</label>
+                    <textarea id="smsText" placeholder="Paste the SMS message here…" style="min-height:130px;"></textarea>
+                </div>
+                <button class="btn-analyze" id="checkBtn" onclick="checkSMS()">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+                    Analyze SMS
+                </button>
+                <div class="loader" id="loading">
+                    <div class="loader-bar"></div>
+                    <span>Analyzing message…</span>
+                </div>
+                <div class="result-panel" id="result">
+                    <div class="result-banner"><h3 id="resultTitle"></h3></div>
+                    <div class="result-rows" id="resultContent"></div>
+                    <div class="conf-bar-wrap" id="confBar" style="display:none">
+                        <div class="conf-bar-label">
+                            <span>Phishing Probability</span>
+                            <span id="confPct">0%</span>
+                        </div>
+                        <div class="conf-bar-track">
+                            <div class="conf-bar-fill" id="confFill"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="tips-panel">
+        <div class="panel">
+            <div class="panel-header">
+                <div class="panel-header-icon">💡</div>
+                <div><h2>Smishing Warning Signs</h2></div>
+            </div>
+            <div class="panel-body">
+                <div class="tip-item">
+                    <div class="tip-num">01</div>
+                    <div class="tip-text">Messages claiming you've won a prize or lottery you never entered</div>
+                </div>
+                <div class="tip-item">
+                    <div class="tip-num">02</div>
+                    <div class="tip-text">Urgent requests to verify account details or face suspension</div>
+                </div>
+                <div class="tip-item">
+                    <div class="tip-num">03</div>
+                    <div class="tip-text">Suspicious shortened links from unknown or unexpected numbers</div>
+                </div>
+                <div class="tip-item">
+                    <div class="tip-num">04</div>
+                    <div class="tip-text">Fake delivery notifications for packages you didn't order</div>
+                </div>
+                <div class="tip-item">
+                    <div class="tip-num">05</div>
+                    <div class="tip-text">SMS from banks or services you don't use asking to confirm details</div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+async function checkSMS() {
+    const text = document.getElementById('smsText').value.trim();
+    if (!text) return;
+    const btn = document.getElementById('checkBtn');
+    const loader = document.getElementById('loading');
+    const result = document.getElementById('result');
+    result.style.display = 'none';
+    loader.classList.add('active');
+    btn.disabled = true;
+    try {
+        const r = await fetch('/api/check-sms', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({sms_text: text}) });
+        const d = await r.json();
+        loader.classList.remove('active');
+        if (d.success) showResult(d.result);
+        else showError(d.error);
+    } catch(e) {
+        loader.classList.remove('active');
+        showError('An error occurred. Please try again.');
+    } finally { btn.disabled = false; }
+}
+
+function showResult(d) {
+    const panel = document.getElementById('result');
+    const confFill = document.getElementById('confFill');
+    const confLabel = document.querySelector('.conf-bar-label span:first-child');
+    panel.className = 'result-panel';
+    
+    let displayProb = d.phishing_probability;
+    if (d.prediction === 'Legitimate') {
+        panel.classList.add('safe');
+        document.getElementById('resultTitle').textContent = '✅ Legitimate SMS';
+        confFill.className = 'conf-bar-fill safe-fill';
+        confLabel.textContent = 'Safety Score';
+        displayProb = d.legitimate_probability;
+    } else if (d.risk_level === 'High Risk') {
+        panel.classList.add('danger');
+        document.getElementById('resultTitle').textContent = '🚨 Smishing Detected!';
+        confFill.className = 'conf-bar-fill';
+        confLabel.textContent = 'Phishing Probability';
+    } else {
+        panel.classList.add('warning');
+        document.getElementById('resultTitle').textContent = '⚠️ Suspicious SMS';
+        confFill.className = 'conf-bar-fill warning-fill';
+        confLabel.textContent = 'Phishing Probability';
+    }
+    const preview = d.text ? d.text.slice(0,80) + (d.text.length>80?'…':'') : '—';
+    document.getElementById('resultContent').innerHTML = `
+        <div class="result-row"><span class="rr-key">Message</span><span class="rr-val">${preview}</span></div>
+        <div class="result-row"><span class="rr-key">Prediction</span><span class="rr-val">${d.prediction}</span></div>
+        <div class="result-row"><span class="rr-key">Risk Level</span><span class="rr-val">${d.risk_level}</span></div>
+        <div class="result-row"><span class="rr-key">Global Confidence</span><span class="rr-val">${d.confidence.toFixed(1)}%</span></div>
+    `;
+    document.getElementById('confBar').style.display = 'block';
+    document.getElementById('confPct').textContent = displayProb.toFixed(1) + '%';
+    panel.style.display = 'block';
+    setTimeout(() => { confFill.style.width = displayProb + '%'; }, 80);
+}
+
+function showError(msg) {
+    const panel = document.getElementById('result');
+    panel.className = 'result-panel danger';
+    document.getElementById('resultTitle').textContent = '❌ Error';
+    document.getElementById('resultContent').innerHTML = `<div class="result-row"><span class="rr-val">${msg}</span></div>`;
+    document.getElementById('confBar').style.display = 'none';
+    panel.style.display = 'block';
+}
+</script>
+{% endblock %}

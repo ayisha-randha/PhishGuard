@@ -1,0 +1,492 @@
+{% extends "base.html" %}
+{% block title %}Model Graphs — PhishGuard{% endblock %}
+
+{% block pg_hero %}
+<div class="pg-hero">
+<div class="pg-hero-inner">
+    <div class="pg-eyebrow">📊 Model Analytics</div>
+    <h1>Performance Graphs</h1>
+    <p>Visual insights into how our CatBoost models perform — ROC curves, confusion matrices, feature importance, and class distributions. Click any graph to expand.</p>
+</div>
+</div>
+{% endblock %}
+
+{% block extra_css %}
+<style>
+/* ── TAB BAR ────────────────────────────────────────── */
+.tab-bar {
+    display: flex;
+    gap: 6px;
+    margin-bottom: 32px;
+    background: var(--gray-100);
+    padding: 5px;
+    border-radius: 12px;
+    width: fit-content;
+}
+
+.tab-btn {
+    padding: 9px 22px;
+    border-radius: 9px;
+    font-family: 'Exo 2', sans-serif;
+    font-size: 0.85rem;
+    font-weight: 700;
+    color: var(--gray-600);
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    transition: all 0.2s;
+    display: flex;
+    align-items: center;
+    gap: 7px;
+}
+
+.tab-btn.active {
+    background: var(--white);
+    color: var(--dark);
+    box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+}
+
+.tab-btn:hover:not(.active) { color: var(--red); }
+
+.tab-panel { display: none; }
+.tab-panel.active { display: block; }
+
+/* ── MODEL HEADER ───────────────────────────────────── */
+.model-header {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    margin-bottom: 28px;
+    padding-bottom: 20px;
+    border-bottom: 2px solid var(--gray-200);
+}
+
+.model-header .mh-icon {
+    width: 48px; height: 48px;
+    border-radius: 14px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 22px;
+    flex-shrink: 0;
+}
+
+.model-header h2 {
+    font-family: 'Exo 2', sans-serif;
+    font-size: 1.3rem;
+    font-weight: 800;
+    color: var(--dark);
+    letter-spacing: -0.02em;
+    margin-bottom: 3px;
+}
+
+.model-header p {
+    font-size: 0.82rem;
+    color: var(--gray-400);
+}
+
+/* ── GRAPH GRID ─────────────────────────────────────── */
+.graph-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+    gap: 18px;
+}
+
+.graph-card {
+    background: var(--white);
+    border: 1.5px solid var(--gray-200);
+    border-radius: 16px;
+    overflow: hidden;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+    transition: all 0.25s;
+    cursor: pointer;
+    position: relative;
+}
+
+.graph-card:hover {
+    border-color: var(--red-mid);
+    box-shadow: 0 8px 28px rgba(215,38,56,0.1);
+    transform: translateY(-4px);
+}
+
+/* Expand icon on hover */
+.graph-card::after {
+    content: '⛶';
+    position: absolute;
+    top: 52px; right: 12px;
+    background: var(--white);
+    border: 1.5px solid var(--gray-200);
+    border-radius: 8px;
+    width: 32px; height: 32px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 14px;
+    opacity: 0;
+    transition: opacity 0.2s;
+    pointer-events: none;
+    z-index: 2;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+}
+
+.graph-card:hover::after { opacity: 1; }
+
+.graph-card-head {
+    padding: 14px 18px;
+    border-bottom: 1px solid var(--gray-100);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.gc-dot {
+    width: 10px; height: 10px;
+    border-radius: 50%;
+    background: var(--red);
+    flex-shrink: 0;
+}
+
+.graph-card-head h3 {
+    font-family: 'Exo 2', sans-serif;
+    font-size: 0.9rem;
+    font-weight: 700;
+    color: var(--dark);
+    flex: 1;
+}
+
+.graph-card-img {
+    padding: 14px;
+    background: var(--off-white);
+}
+
+.graph-card-img img {
+    width: 100%;
+    border-radius: 8px;
+    display: block;
+    border: 1px solid var(--gray-200);
+    transition: opacity 0.2s;
+}
+
+.graph-card-foot {
+    padding: 10px 18px;
+    font-size: 0.76rem;
+    color: var(--gray-400);
+    font-style: italic;
+    border-top: 1px solid var(--gray-100);
+    line-height: 1.4;
+}
+
+/* ── LIGHTBOX ───────────────────────────────────────── */
+.lightbox {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(15, 23, 42, 0.7);
+    backdrop-filter: blur(6px);
+    z-index: 1000;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    animation: lbFadeIn 0.25s ease;
+}
+
+@keyframes lbFadeIn {
+    from { opacity: 0; }
+    to   { opacity: 1; }
+}
+
+.lightbox.open { display: flex; }
+
+.lb-box {
+    background: var(--white);
+    border-radius: 20px;
+    box-shadow: 0 40px 100px rgba(0,0,0,0.3);
+    max-width: 900px;
+    width: 100%;
+    overflow: hidden;
+    animation: lbSlideUp 0.3s cubic-bezier(.22,.68,0,1.1);
+    max-height: 92vh;
+    display: flex;
+    flex-direction: column;
+}
+
+@keyframes lbSlideUp {
+    from { opacity: 0; transform: translateY(20px) scale(0.97); }
+    to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.lb-header {
+    padding: 18px 24px;
+    border-bottom: 1.5px solid var(--gray-200);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-shrink: 0;
+}
+
+.lb-title {
+    font-family: 'Exo 2', sans-serif;
+    font-size: 1rem;
+    font-weight: 800;
+    color: var(--dark);
+}
+
+.lb-close {
+    width: 34px; height: 34px;
+    background: var(--gray-100);
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 16px;
+    transition: all 0.2s;
+    color: var(--gray-600);
+}
+
+.lb-close:hover { background: var(--red-light); color: var(--red); }
+
+.lb-img-wrap {
+    padding: 20px;
+    background: var(--off-white);
+    overflow-y: auto;
+    flex: 1;
+}
+
+.lb-img-wrap img {
+    width: 100%;
+    border-radius: 10px;
+    display: block;
+    border: 1.5px solid var(--gray-200);
+}
+
+.lb-footer {
+    padding: 14px 24px;
+    border-top: 1.5px solid var(--gray-100);
+    font-size: 0.82rem;
+    color: var(--gray-400);
+    font-style: italic;
+    flex-shrink: 0;
+}
+
+/* Nav arrows in lightbox */
+.lb-nav {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.lb-arrow {
+    width: 34px; height: 34px;
+    background: var(--gray-100);
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 14px;
+    transition: all 0.2s;
+    color: var(--gray-600);
+}
+
+.lb-arrow:hover { background: var(--red); color: white; }
+
+.lb-counter {
+    font-family: 'Exo 2', sans-serif;
+    font-size: 0.78rem;
+    font-weight: 700;
+    color: var(--gray-400);
+    min-width: 42px;
+    text-align: center;
+}
+
+@media (max-width: 600px) {
+    .graph-grid { grid-template-columns: 1fr; }
+    .tab-bar { width: 100%; }
+    .tab-btn { flex: 1; justify-content: center; }
+}
+</style>
+{% endblock %}
+
+{% block content %}
+
+<!-- TAB BAR -->
+<div class="tab-bar">
+    <button class="tab-btn active" onclick="switchTab('url', this)">🔗 URL Model</button>
+    <button class="tab-btn" onclick="switchTab('text', this)">📧 Email & SMS Model</button>
+</div>
+
+<!-- URL MODEL TAB -->
+<div class="tab-panel active" id="tab-url">
+    <div class="model-header">
+        <div class="mh-icon" style="background:var(--red-light);">🔗</div>
+        <div>
+            <h2>URL Detection Model</h2>
+            <p>Trained on 450,000+ URLs · CatBoost gradient boosting · 24+ engineered features</p>
+        </div>
+    </div>
+
+    <div class="graph-grid">
+        <div class="graph-card" onclick="openLightbox('url_roc_curve','ROC Curve','Receiver Operating Characteristic — measures true vs false positive rate at every threshold')">
+            <div class="graph-card-head"><div class="gc-dot"></div><h3>ROC Curve</h3></div>
+            <div class="graph-card-img"><img src="/graphs/url_roc_curve.png" alt="URL ROC Curve" loading="lazy"></div>
+            <div class="graph-card-foot">Measures true vs false positive rate at every classification threshold</div>
+        </div>
+        <div class="graph-card" onclick="openLightbox('url_confusion_matrix','Confusion Matrix','Actual vs predicted classifications showing true/false positives and negatives')">
+            <div class="graph-card-head"><div class="gc-dot"></div><h3>Confusion Matrix</h3></div>
+            <div class="graph-card-img"><img src="/graphs/url_confusion_matrix.png" alt="URL Confusion Matrix" loading="lazy"></div>
+            <div class="graph-card-foot">Actual vs predicted classifications — true/false positives and negatives</div>
+        </div>
+        <div class="graph-card" onclick="openLightbox('url_metrics','Metrics Summary','Accuracy, precision, recall, and F1 score breakdown for the URL model')">
+            <div class="graph-card-head"><div class="gc-dot"></div><h3>Metrics Summary</h3></div>
+            <div class="graph-card-img"><img src="/graphs/url_metrics.png" alt="URL Metrics" loading="lazy"></div>
+            <div class="graph-card-foot">Accuracy, precision, recall, and F1 score for the URL detection model</div>
+        </div>
+        <div class="graph-card" onclick="openLightbox('url_feature_importance','Feature Importance','Top predictive features ranked by CatBoost importance scores')">
+            <div class="graph-card-head"><div class="gc-dot"></div><h3>Feature Importance</h3></div>
+            <div class="graph-card-img"><img src="/graphs/url_feature_importance.png" alt="URL Feature Importance" loading="lazy"></div>
+            <div class="graph-card-foot">Top predictive features ranked by CatBoost importance scores</div>
+        </div>
+        <div class="graph-card" onclick="openLightbox('url_class_distribution','Class Distribution','Balance of phishing vs legitimate URLs in the training dataset')">
+            <div class="graph-card-head"><div class="gc-dot"></div><h3>Class Distribution</h3></div>
+            <div class="graph-card-img"><img src="/graphs/url_class_distribution.png" alt="URL Class Distribution" loading="lazy"></div>
+            <div class="graph-card-foot">Balance of phishing vs legitimate URLs in the training dataset</div>
+        </div>
+    </div>
+</div>
+
+<!-- TEXT MODEL TAB -->
+<div class="tab-panel" id="tab-text">
+    <div class="model-header">
+        <div class="mh-icon" style="background:#EFF6FF;">📧</div>
+        <div>
+            <h2>Email &amp; SMS Detection Model</h2>
+            <p>Trained on 170,000+ messages · TF-IDF + 26+ linguistic features · CatBoost classifier</p>
+        </div>
+    </div>
+
+    <div class="graph-grid">
+        <div class="graph-card" onclick="openLightbox('text_roc_curve','ROC Curve','Receiver Operating Characteristic for the email/SMS phishing classifier')">
+            <div class="graph-card-head"><div class="gc-dot"></div><h3>ROC Curve</h3></div>
+            <div class="graph-card-img"><img src="/graphs/text_roc_curve.png" alt="Text ROC Curve" loading="lazy"></div>
+            <div class="graph-card-foot">ROC curve for the email and SMS phishing classifier</div>
+        </div>
+        <div class="graph-card" onclick="openLightbox('text_confusion_matrix','Confusion Matrix','Classification results across all test samples for text-based detection')">
+            <div class="graph-card-head"><div class="gc-dot"></div><h3>Confusion Matrix</h3></div>
+            <div class="graph-card-img"><img src="/graphs/text_confusion_matrix.png" alt="Text Confusion Matrix" loading="lazy"></div>
+            <div class="graph-card-foot">Classification results across all test samples for text-based detection</div>
+        </div>
+        <div class="graph-card" onclick="openLightbox('text_metrics','Metrics Summary','Full performance metrics for the email and SMS detection model')">
+            <div class="graph-card-head"><div class="gc-dot"></div><h3>Metrics Summary</h3></div>
+            <div class="graph-card-img"><img src="/graphs/text_metrics.png" alt="Text Metrics" loading="lazy"></div>
+            <div class="graph-card-foot">Full performance metrics for the email and SMS detection model</div>
+        </div>
+        <div class="graph-card" onclick="openLightbox('text_feature_importance','Feature Importance','Most influential text features in classifying phishing messages')">
+            <div class="graph-card-head"><div class="gc-dot"></div><h3>Feature Importance</h3></div>
+            <div class="graph-card-img"><img src="/graphs/text_feature_importance.png" alt="Text Feature Importance" loading="lazy"></div>
+            <div class="graph-card-foot">Most influential text features in classifying phishing messages</div>
+        </div>
+        <div class="graph-card" onclick="openLightbox('text_class_distribution','Class Distribution','Distribution of phishing vs legitimate messages in training data')">
+            <div class="graph-card-head"><div class="gc-dot"></div><h3>Class Distribution</h3></div>
+            <div class="graph-card-img"><img src="/graphs/text_class_distribution.png" alt="Text Class Distribution" loading="lazy"></div>
+            <div class="graph-card-foot">Distribution of phishing vs legitimate messages in training data</div>
+        </div>
+    </div>
+</div>
+
+<!-- LIGHTBOX -->
+<div class="lightbox" id="lightbox" onclick="closeLightboxOutside(event)">
+    <div class="lb-box">
+        <div class="lb-header">
+            <span class="lb-title" id="lbTitle">Graph</span>
+            <div class="lb-nav">
+                <button class="lb-arrow" onclick="lbNav(-1)">←</button>
+                <span class="lb-counter" id="lbCounter">1 / 5</span>
+                <button class="lb-arrow" onclick="lbNav(1)">→</button>
+                <button class="lb-close" onclick="closeLightbox()">✕</button>
+            </div>
+        </div>
+        <div class="lb-img-wrap">
+            <img id="lbImg" src="" alt="">
+        </div>
+        <div class="lb-footer" id="lbFooter"></div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+// ── TABS ──────────────────────────────────────────────
+function switchTab(id, btn) {
+    document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    document.getElementById('tab-' + id).classList.add('active');
+    btn.classList.add('active');
+}
+
+// ── LIGHTBOX ──────────────────────────────────────────
+const graphs = {
+    url: [
+        { file: 'url_roc_curve',          title: 'URL — ROC Curve',           desc: 'Receiver Operating Characteristic — measures true vs false positive rate at every threshold' },
+        { file: 'url_confusion_matrix',   title: 'URL — Confusion Matrix',    desc: 'Actual vs predicted classifications showing true/false positives and negatives' },
+        { file: 'url_metrics',            title: 'URL — Metrics Summary',     desc: 'Accuracy, precision, recall, and F1 score breakdown for the URL model' },
+        { file: 'url_feature_importance', title: 'URL — Feature Importance',  desc: 'Top predictive URL features ranked by CatBoost importance scores' },
+        { file: 'url_class_distribution', title: 'URL — Class Distribution',  desc: 'Balance of phishing vs legitimate URLs in the training dataset' },
+    ],
+    text: [
+        { file: 'text_roc_curve',          title: 'Text — ROC Curve',          desc: 'ROC curve for the email and SMS phishing classifier' },
+        { file: 'text_confusion_matrix',   title: 'Text — Confusion Matrix',   desc: 'Classification results across all test samples' },
+        { file: 'text_metrics',            title: 'Text — Metrics Summary',    desc: 'Full performance metrics for the email and SMS detection model' },
+        { file: 'text_feature_importance', title: 'Text — Feature Importance', desc: 'Most influential text features in classifying phishing messages' },
+        { file: 'text_class_distribution', title: 'Text — Class Distribution', desc: 'Distribution of phishing vs legitimate messages in training data' },
+    ]
+};
+
+let lbList = [];
+let lbIdx = 0;
+
+function openLightbox(file, title, desc) {
+    // Find which list this graph belongs to
+    let found = false;
+    for (const [key, list] of Object.entries(graphs)) {
+        const idx = list.findIndex(g => g.file === file);
+        if (idx !== -1) {
+            lbList = list;
+            lbIdx = idx;
+            found = true;
+            break;
+        }
+    }
+    if (!found) return;
+    renderLb();
+    document.getElementById('lightbox').classList.add('open');
+    document.body.style.overflow = 'hidden';
+}
+
+function renderLb() {
+    const g = lbList[lbIdx];
+    document.getElementById('lbTitle').textContent = g.title;
+    document.getElementById('lbImg').src = '/graphs/' + g.file + '.png';
+    document.getElementById('lbImg').alt = g.title;
+    document.getElementById('lbFooter').textContent = g.desc;
+    document.getElementById('lbCounter').textContent = (lbIdx + 1) + ' / ' + lbList.length;
+}
+
+function closeLightbox() {
+    document.getElementById('lightbox').classList.remove('open');
+    document.body.style.overflow = '';
+}
+
+function closeLightboxOutside(e) {
+    if (e.target === document.getElementById('lightbox')) closeLightbox();
+}
+
+function lbNav(dir) {
+    lbIdx = (lbIdx + dir + lbList.length) % lbList.length;
+    renderLb();
+}
+
+// Keyboard nav
+document.addEventListener('keydown', e => {
+    if (!document.getElementById('lightbox').classList.contains('open')) return;
+    if (e.key === 'Escape') closeLightbox();
+    if (e.key === 'ArrowLeft')  lbNav(-1);
+    if (e.key === 'ArrowRight') lbNav(1);
+});
+</script>
+{% endblock %}
